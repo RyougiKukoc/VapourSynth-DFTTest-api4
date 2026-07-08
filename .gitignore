@@ -32,6 +32,8 @@ build*/
 dist/
 verification*/
 __pycache__/
+vapoursynth/
+*.egg-info/
 
 # Executables
 *.exe

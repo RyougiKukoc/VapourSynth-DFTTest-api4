@@ -8,6 +8,27 @@ Requires libfftw3f-3.dll to be in the search path. http://www.fftw.org/install/w
 Ported from AviSynth plugin http://bengal.missouri.edu/~kes25c/
 
 
+Installation
+============
+
+On Windows x86_64, the preferred install path is pip:
+
+    pip install "vapoursynth-dfttest @ git+https://github.com/RyougiKukoc/VapourSynth-DFTTest-api4.git"
+
+The Python package installs the native plugin under
+`vapoursynth/plugins/dfttest/` with a `manifest.vs`, so current VapourSynth
+autoloads it as `core.dfttest.DFTTest`.
+
+The VCS build hook maps `project.version = 1.0` to the default GitHub Release
+tag `v1.0` and first tries to reuse this tested native package asset:
+
+    dfttest-msys2-ucrt64.zip
+
+If that Release asset is unavailable, the build falls back to a local MSYS2
+UCRT64 Meson build. A local fallback build requires MSYS2 UCRT64 GCC, Meson,
+Ninja, pkgconf, and FFTW.
+
+
 Usage
 =====
 
