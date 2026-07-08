@@ -183,7 +183,7 @@ static auto cast(const float * ebp, pixel_t * dstp, const int dstWidth, const in
 }
 
 template<typename pixel_t>
-void func_0_sse2(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
+void func_0_sse2(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
     const float * hw = d->hw.get();
     const float * sigmas = d->sigmas.get();
     const float * sigmas2 = d->sigmas2.get();
@@ -199,7 +199,9 @@ void func_0_sse2(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * cons
     fftwf_complex * dftc = d->dftc.at(threadId).get();
     fftwf_complex * dftc2 = d->dftc2.at(threadId).get();
 
-    for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+    const VSVideoFormat *fi = &d->vi.format;
+
+    for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (d->process[plane]) {
             const int width = d->padWidth[plane];
             const int height = d->padHeight[plane];
@@ -250,7 +252,7 @@ void func_0_sse2(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * cons
 }
 
 template<typename pixel_t>
-void func_1_sse2(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
+void func_1_sse2(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
     const float * hw = d->hw.get();
     const float * sigmas = d->sigmas.get();
     const float * sigmas2 = d->sigmas2.get();
@@ -266,7 +268,9 @@ void func_1_sse2(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const
     fftwf_complex * dftc = d->dftc.at(threadId).get();
     fftwf_complex * dftc2 = d->dftc2.at(threadId).get();
 
-    for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+    const VSVideoFormat *fi = &d->vi.format;
+
+    for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (d->process[plane]) {
             const int width = d->padWidth[plane];
             const int height = d->padHeight[plane];
@@ -327,11 +331,11 @@ template void filter_sse2<4>(float * dftc, const float * sigmas, const int ccnt,
 template void filter_sse2<5>(float * dftc, const float * sigmas, const int ccnt, const float * pmin, const float * pmax, const float * sigmas2) noexcept;
 template void filter_sse2<6>(float * dftc, const float * sigmas, const int ccnt, const float * pmin, const float * pmax, const float * sigmas2) noexcept;
 
-template void func_0_sse2<uint8_t>(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template void func_0_sse2<uint16_t>(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template void func_0_sse2<float>(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_0_sse2<uint8_t>(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_0_sse2<uint16_t>(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_0_sse2<float>(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
 
-template void func_1_sse2<uint8_t>(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template void func_1_sse2<uint16_t>(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template void func_1_sse2<float>(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_1_sse2<uint8_t>(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_1_sse2<uint16_t>(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template void func_1_sse2<float>(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
 #endif

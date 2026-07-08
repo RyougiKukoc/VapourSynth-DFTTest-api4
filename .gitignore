@@ -26,6 +26,13 @@
 *.a
 *.lib
 
+# Local/CI build outputs
+_deps/
+build*/
+dist/
+verification*/
+__pycache__/
+
 # Executables
 *.exe
 *.out

@@ -39,13 +39,13 @@ template<int type> extern void filter_sse2(float * dftc, const float * sigmas, c
 template<int type> extern void filter_avx2(float * dftc, const float * sigmas, const int ccnt, const float * pmin, const float * pmax, const float * sigmas2) noexcept;
 template<int type> extern void filter_avx512(float * dftc, const float * sigmas, const int ccnt, const float * pmin, const float * pmax, const float * sigmas2) noexcept;
 
-template<typename pixel_t> extern void func_0_sse2(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template<typename pixel_t> extern void func_0_avx2(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template<typename pixel_t> extern void func_0_avx512(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_0_sse2(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_0_avx2(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_0_avx512(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
 
-template<typename pixel_t> extern void func_1_sse2(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template<typename pixel_t> extern void func_1_avx2(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
-template<typename pixel_t> extern void func_1_avx512(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_1_sse2(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_1_avx2(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+template<typename pixel_t> extern void func_1_avx512(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
 #endif
 
 #define EXTRA(a,b) (((a) % (b)) ? ((b) - ((a) % (b))) : 0)
@@ -56,15 +56,15 @@ static auto getArg(const VSAPI * vsapi, const VSMap * map, const char * key, con
     int err{};
 
     if constexpr (std::is_same_v<arg_t, bool>)
-        arg = !!vsapi->propGetInt(map, key, 0, &err);
+        arg = !!vsapi->mapGetInt(map, key, 0, &err);
     else if constexpr (std::is_same_v<arg_t, int>)
-        arg = int64ToIntS(vsapi->propGetInt(map, key, 0, &err));
+        arg = vsh::int64ToIntS(vsapi->mapGetInt(map, key, 0, &err));
     else if constexpr (std::is_same_v<arg_t, int64_t>)
-        arg = vsapi->propGetInt(map, key, 0, &err);
+        arg = vsapi->mapGetInt(map, key, 0, &err);
     else if constexpr (std::is_same_v<arg_t, float>)
-        arg = static_cast<float>(vsapi->propGetFloat(map, key, 0, &err));
+        arg = static_cast<float>(vsapi->mapGetFloat(map, key, 0, &err));
     else if constexpr (std::is_same_v<arg_t, double>)
-        arg = vsapi->propGetFloat(map, key, 0, &err);
+        arg = vsapi->mapGetFloat(map, key, 0, &err);
 
     if (err)
         arg = defaultValue;
@@ -73,8 +73,10 @@ static auto getArg(const VSAPI * vsapi, const VSMap * map, const char * key, con
 }
 
 template<typename pixel_t>
-static auto copyPad(const VSFrameRef * src, VSFrameRef * dst[3], const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
-    for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+static auto copyPad(const VSFrame * src, VSFrame * dst[3], const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
+    const VSVideoFormat *fi = &d->vi.format;
+
+    for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (d->process[plane]) {
             const int srcWidth = vsapi->getFrameWidth(src, plane);
             const int dstWidth = vsapi->getFrameWidth(dst[plane], 0);
@@ -85,7 +87,7 @@ static auto copyPad(const VSFrameRef * src, VSFrameRef * dst[3], const DFTTestDa
             const int offy = (dstHeight - srcHeight) / 2;
             const int offx = (dstWidth - srcWidth) / 2;
 
-            vs_bitblt(vsapi->getWritePtr(dst[plane], 0) + vsapi->getStride(dst[plane], 0) * offy + offx * sizeof(pixel_t),
+            vsh::bitblt(vsapi->getWritePtr(dst[plane], 0) + vsapi->getStride(dst[plane], 0) * offy + offx * sizeof(pixel_t),
                       vsapi->getStride(dst[plane], 0),
                       vsapi->getReadPtr(src, plane),
                       vsapi->getStride(src, plane),
@@ -220,7 +222,7 @@ static auto cast(const float * ebp, pixel_t * VS_RESTRICT dstp, const int dstWid
 }
 
 template<typename pixel_t>
-static void func_0_c(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
+static void func_0_c(VSFrame * src[3], VSFrame * dst, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
     const float * hw = d->hw.get();
     const float * sigmas = d->sigmas.get();
     const float * sigmas2 = d->sigmas2.get();
@@ -236,7 +238,9 @@ static void func_0_c(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * 
     fftwf_complex * dftc = d->dftc.at(threadId).get();
     fftwf_complex * dftc2 = d->dftc2.at(threadId).get();
 
-    for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+    const VSVideoFormat *fi = &d->vi.format;
+
+    for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (d->process[plane]) {
             const int width = d->padWidth[plane];
             const int height = d->padHeight[plane];
@@ -283,7 +287,7 @@ static void func_0_c(VSFrameRef * src[3], VSFrameRef * dst, const DFTTestData * 
 }
 
 template<typename pixel_t>
-static void func_1_c(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
+static void func_1_c(VSFrame * src[15][3], VSFrame * dst, const int pos, const DFTTestData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept {
     const float * hw = d->hw.get();
     const float * sigmas = d->sigmas.get();
     const float * sigmas2 = d->sigmas2.get();
@@ -299,7 +303,9 @@ static void func_1_c(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, c
     fftwf_complex * dftc = d->dftc.at(threadId).get();
     fftwf_complex * dftc2 = d->dftc2.at(threadId).get();
 
-    for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+    const VSVideoFormat *fi = &d->vi.format;
+
+    for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (d->process[plane]) {
             const int width = d->padWidth[plane];
             const int height = d->padHeight[plane];
@@ -348,20 +354,17 @@ static void func_1_c(VSFrameRef * src[15][3], VSFrameRef * dst, const int pos, c
     }
 }
 
-static void VS_CC dfttestInit(VSMap * in, VSMap * out, void ** instanceData, VSNode * node, VSCore * core, const VSAPI * vsapi) {
-    DFTTestData * d = static_cast<DFTTestData *>(*instanceData);
-    vsapi->setVideoInfo(d->vi, 1, node);
-}
-
-static const VSFrameRef * VS_CC dfttestGetFrame(int n, int activationReason, void ** instanceData, void ** frameData, VSFrameContext * frameCtx, VSCore * core, const VSAPI * vsapi) {
-    DFTTestData * d = static_cast<DFTTestData *>(*instanceData);
+static const VSFrame * VS_CC dfttestGetFrame(int n, int activationReason, void * instanceData, void ** frameData, VSFrameContext * frameCtx, VSCore * core, const VSAPI * vsapi) {
+    (void)frameData;
+    DFTTestData * d = static_cast<DFTTestData *>(instanceData);
+    const VSVideoFormat *fi = &d->vi.format;
 
     if (activationReason == arInitial) {
         if (d->tbsize == 1) {
             vsapi->requestFrameFilter(n, d->node, frameCtx);
         } else {
             const int start = std::max(n - d->tbsize / 2, 0);
-            const int stop = std::min(n + d->tbsize / 2, d->vi->numFrames - 1);
+            const int stop = std::min(n + d->tbsize / 2, d->vi.numFrames - 1);
             for (int i = start; i <= stop; i++)
                 vsapi->requestFrameFilter(i, d->node, frameCtx);
         }
@@ -371,62 +374,62 @@ static const VSFrameRef * VS_CC dfttestGetFrame(int n, int activationReason, voi
 
             if (!d->ebuff.count(threadId)) {
                 d->ebuff.emplace(threadId,
-                                 unique_VSFrameRef{ vsapi->newVideoFrame(vsapi->registerFormat(cmGray, stFloat, 32, 0, 0, core), d->padWidth[0], d->padHeight[0], nullptr, core),
-                                                    vsapi->freeFrame });
+                                 unique_VSFrame{ vsapi->newVideoFrame(&d->ebuffFormat, d->padWidth[0], d->padHeight[0], nullptr, core),
+                                                 vsapi->freeFrame });
 
-                float * dftr = vs_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64);
+                float * dftr = vsh::vsh_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64);
                 if (!dftr)
                     throw "malloc failure (dftr)";
-                d->dftr.emplace(threadId, unique_float{ dftr, vs_aligned_free });
+                d->dftr.emplace(threadId, unique_float{ dftr, vsh::vsh_aligned_free });
 
-                fftwf_complex * dftc = vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64);
+                fftwf_complex * dftc = vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64);
                 if (!dftc)
                     throw "malloc failure (dftc)";
-                d->dftc.emplace(threadId, unique_fftwf_complex{ dftc, vs_aligned_free });
+                d->dftc.emplace(threadId, unique_fftwf_complex{ dftc, vsh::vsh_aligned_free });
 
-                fftwf_complex * dftc2 = vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64);
+                fftwf_complex * dftc2 = vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64);
                 if (!dftc2)
                     throw "malloc failure (dftc2)";
-                d->dftc2.emplace(threadId, unique_fftwf_complex{ dftc2, vs_aligned_free });
+                d->dftc2.emplace(threadId, unique_fftwf_complex{ dftc2, vsh::vsh_aligned_free });
             }
         } catch (const char * error) {
             vsapi->setFilterError(("DFTTest: "s + error).c_str(), frameCtx);
             return nullptr;
         }
 
-        const VSFrameRef * src0 = vsapi->getFrameFilter(n, d->node, frameCtx);
-        const VSFrameRef * fr[] = { d->process[0] ? nullptr : src0, d->process[1] ? nullptr : src0, d->process[2] ? nullptr : src0 };
+        const VSFrame * src0 = vsapi->getFrameFilter(n, d->node, frameCtx);
+        const VSFrame * fr[] = { d->process[0] ? nullptr : src0, d->process[1] ? nullptr : src0, d->process[2] ? nullptr : src0 };
         const int pl[] = { 0, 1, 2 };
-        VSFrameRef * dst = vsapi->newVideoFrame2(d->vi->format, d->vi->width, d->vi->height, fr, pl, src0, core);
+        VSFrame * dst = vsapi->newVideoFrame2(fi, d->vi.width, d->vi.height, fr, pl, src0, core);
         vsapi->freeFrame(src0);
 
         if (d->tbsize == 1) {
-            const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
-            VSFrameRef * pad[3] = {};
+            const VSFrame * src = vsapi->getFrameFilter(n, d->node, frameCtx);
+            VSFrame * pad[3] = {};
 
-            for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+            for (int plane = 0; plane < fi->numPlanes; plane++) {
                 if (d->process[plane])
-                    pad[plane] = vsapi->newVideoFrame(d->padFormat, d->padWidth[plane], d->padHeight[plane], nullptr, core);
+                    pad[plane] = vsapi->newVideoFrame(&d->padFormat, d->padWidth[plane], d->padHeight[plane], nullptr, core);
             }
 
             d->copyPad(src, pad, d, vsapi);
             d->func_0(pad, dst, d, vsapi);
 
             vsapi->freeFrame(src);
-            for (int plane = 0; plane < d->vi->format->numPlanes; plane++)
+            for (int plane = 0; plane < fi->numPlanes; plane++)
                 vsapi->freeFrame(pad[plane]);
         } else {
-            const VSFrameRef * src[15] = {};
-            VSFrameRef * pad[15][3] = {};
+            const VSFrame * src[15] = {};
+            VSFrame * pad[15][3] = {};
 
             const int pos = d->tbsize / 2;
 
             for (int i = n - pos; i <= n + pos; i++) {
-                src[i - n + pos] = vsapi->getFrameFilter(std::clamp(i, 0, d->vi->numFrames - 1), d->node, frameCtx);
+                src[i - n + pos] = vsapi->getFrameFilter(std::clamp(i, 0, d->vi.numFrames - 1), d->node, frameCtx);
 
-                for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+                for (int plane = 0; plane < fi->numPlanes; plane++) {
                     if (d->process[plane])
-                        pad[i - n + pos][plane] = vsapi->newVideoFrame(d->padFormat, d->padWidth[plane], d->padHeight[plane], nullptr, core);
+                        pad[i - n + pos][plane] = vsapi->newVideoFrame(&d->padFormat, d->padWidth[plane], d->padHeight[plane], nullptr, core);
                 }
 
                 d->copyPad(src[i - n + pos], pad[i - n + pos], d, vsapi);
@@ -436,7 +439,7 @@ static const VSFrameRef * VS_CC dfttestGetFrame(int n, int activationReason, voi
 
             for (int i = n - pos; i <= n + pos; i++) {
                 vsapi->freeFrame(src[i - n + pos]);
-                for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
+                for (int plane = 0; plane < fi->numPlanes; plane++) {
                     vsapi->freeFrame(pad[i - n + pos][plane]);
                 }
             }
@@ -590,12 +593,13 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
     };
 
     try {
-        d->node = vsapi->propGetNode(in, "clip", 0, nullptr);
-        d->vi = vsapi->getVideoInfo(d->node);
+        d->node = vsapi->mapGetNode(in, "clip", 0, nullptr);
+        d->vi = *vsapi->getVideoInfo(d->node);
+        const VSVideoFormat *fi = &d->vi.format;
 
-        if (!isConstantFormat(d->vi) ||
-            (d->vi->format->sampleType == stInteger && d->vi->format->bitsPerSample > 16) ||
-            (d->vi->format->sampleType == stFloat && d->vi->format->bitsPerSample != 32))
+        if (!vsh::isConstantVideoFormat(&d->vi) ||
+            (fi->sampleType == stInteger && fi->bitsPerSample > 16) ||
+            (fi->sampleType == stFloat && fi->bitsPerSample != 32))
             throw "only constant format 8-16 bit integer and 32 bit float input supported";
 
         const int ftype = getArg(vsapi, in, "ftype", 0);
@@ -619,28 +623,28 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
         const int ssystem = getArg(vsapi, in, "ssystem", 0);
         const int opt = getArg(vsapi, in, "opt", 0);
 
-        const int64_t * nlocation = vsapi->propGetIntArray(in, "nlocation", &err);
-        const double * slocation = vsapi->propGetFloatArray(in, "slocation", &err);
-        const double * ssx = vsapi->propGetFloatArray(in, "ssx", &err);
-        const double * ssy = vsapi->propGetFloatArray(in, "ssy", &err);
-        const double * sst = vsapi->propGetFloatArray(in, "sst", &err);
+        const int64_t * nlocation = vsapi->mapGetIntArray(in, "nlocation", &err);
+        const double * slocation = vsapi->mapGetFloatArray(in, "slocation", &err);
+        const double * ssx = vsapi->mapGetFloatArray(in, "ssx", &err);
+        const double * ssy = vsapi->mapGetFloatArray(in, "ssy", &err);
+        const double * sst = vsapi->mapGetFloatArray(in, "sst", &err);
 
-        const int numNlocation = vsapi->propNumElements(in, "nlocation");
-        const int numSlocation = vsapi->propNumElements(in, "slocation");
-        const int numSsx = vsapi->propNumElements(in, "ssx");
-        const int numSsy = vsapi->propNumElements(in, "ssy");
-        const int numSst = vsapi->propNumElements(in, "sst");
+        const int numNlocation = vsapi->mapNumElements(in, "nlocation");
+        const int numSlocation = vsapi->mapNumElements(in, "slocation");
+        const int numSsx = vsapi->mapNumElements(in, "ssx");
+        const int numSsy = vsapi->mapNumElements(in, "ssy");
+        const int numSst = vsapi->mapNumElements(in, "sst");
 
         {
-            const int m = vsapi->propNumElements(in, "planes");
+            const int m = vsapi->mapNumElements(in, "planes");
 
             for (int i = 0; i < 3; i++)
                 d->process[i] = (m <= 0);
 
             for (int i = 0; i < m; i++) {
-                const int n = int64ToIntS(vsapi->propGetInt(in, "planes", i, nullptr));
+                const int n = vsh::int64ToIntS(vsapi->mapGetInt(in, "planes", i, nullptr));
 
-                if (n < 0 || n >= d->vi->format->numPlanes)
+                if (n < 0 || n >= fi->numPlanes)
                     throw "plane index out of range";
 
                 if (d->process[n])
@@ -689,7 +693,7 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
         if (d->tosize > d->tbsize / 2 && d->tbsize % (d->tbsize - d->tosize) != 0)
             throw "temporal overlap greater than 50% requires that tbsize-tosize is a divisor of tbsize";
 
-        if (d->tbsize > d->vi->numFrames)
+        if (d->tbsize > d->vi.numFrames)
             throw "tbsize must be less than or equal to the number of frames in the clip";
 
         if (d->swin < 0 || d->swin > 11)
@@ -740,11 +744,11 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
                 d->filterCoeffs = filter_c<4>;
             }
 
-            if (d->vi->format->bytesPerSample == 1) {
+            if (fi->bytesPerSample == 1) {
                 d->copyPad = copyPad<uint8_t>;
                 d->func_0 = func_0_c<uint8_t>;
                 d->func_1 = func_1_c<uint8_t>;
-            } else if (d->vi->format->bytesPerSample == 2) {
+            } else if (fi->bytesPerSample == 2) {
                 d->copyPad = copyPad<uint16_t>;
                 d->func_0 = func_0_c<uint16_t>;
                 d->func_1 = func_1_c<uint16_t>;
@@ -774,10 +778,10 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
                     d->filterCoeffs = filter_avx512<4>;
                 }
 
-                if (d->vi->format->bytesPerSample == 1) {
+                if (fi->bytesPerSample == 1) {
                     d->func_0 = func_0_avx512<uint8_t>;
                     d->func_1 = func_1_avx512<uint8_t>;
-                } else if (d->vi->format->bytesPerSample == 2) {
+                } else if (fi->bytesPerSample == 2) {
                     d->func_0 = func_0_avx512<uint16_t>;
                     d->func_1 = func_1_avx512<uint16_t>;
                 } else {
@@ -802,10 +806,10 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
                     d->filterCoeffs = filter_avx2<4>;
                 }
 
-                if (d->vi->format->bytesPerSample == 1) {
+                if (fi->bytesPerSample == 1) {
                     d->func_0 = func_0_avx2<uint8_t>;
                     d->func_1 = func_1_avx2<uint8_t>;
-                } else if (d->vi->format->bytesPerSample == 2) {
+                } else if (fi->bytesPerSample == 2) {
                     d->func_0 = func_0_avx2<uint16_t>;
                     d->func_1 = func_1_avx2<uint16_t>;
                 } else {
@@ -830,10 +834,10 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
                     d->filterCoeffs = filter_sse2<4>;
                 }
 
-                if (d->vi->format->bytesPerSample == 1) {
+                if (fi->bytesPerSample == 1) {
                     d->func_0 = func_0_sse2<uint8_t>;
                     d->func_1 = func_1_sse2<uint8_t>;
-                } else if (d->vi->format->bytesPerSample == 2) {
+                } else if (fi->bytesPerSample == 2) {
                     d->func_0 = func_0_sse2<uint16_t>;
                     d->func_1 = func_1_sse2<uint16_t>;
                 } else {
@@ -844,10 +848,10 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
 #endif
         }
 
-        if (d->vi->format->sampleType == stInteger) {
-            d->dstScale = static_cast<float>(1 << (d->vi->format->bitsPerSample - 8));
+        if (fi->sampleType == stInteger) {
+            d->dstScale = static_cast<float>(1 << (fi->bitsPerSample - 8));
             d->srcScale = 1.0f / d->dstScale;
-            d->peak = (1 << d->vi->format->bitsPerSample) - 1;
+            d->peak = (1 << fi->bitsPerSample) - 1;
         } else {
             d->srcScale = 255.0f;
             d->dstScale = 1.0f / 255.0f;
@@ -865,10 +869,14 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
         d->uf0b = (std::abs(d->f0beta - 1.0f) < 0.00005f) ? false : true;
         d->inc = (d->type & 1) ? d->sbsize - d->sosize : 1;
 
-        d->padFormat = vsapi->registerFormat(cmGray, d->vi->format->sampleType, d->vi->format->bitsPerSample, 0, 0, core);
-        for (int plane = 0; plane < d->vi->format->numPlanes; plane++) {
-            const int width = d->vi->width >> (plane ? d->vi->format->subSamplingW : 0);
-            const int height = d->vi->height >> (plane ? d->vi->format->subSamplingH : 0);
+        if (!vsapi->queryVideoFormat(&d->padFormat, cfGray, fi->sampleType, fi->bitsPerSample, 0, 0, core))
+            throw "failed to query padded plane format";
+        if (!vsapi->queryVideoFormat(&d->ebuffFormat, cfGray, stFloat, 32, 0, 0, core))
+            throw "failed to query scratch buffer format";
+
+        for (int plane = 0; plane < fi->numPlanes; plane++) {
+            const int width = d->vi.width >> (plane ? fi->subSamplingW : 0);
+            const int height = d->vi.height >> (plane ? fi->subSamplingH : 0);
 
             if (smode == 0) {
                 const int ae = (d->sbsize >> 1) << 1;
@@ -883,14 +891,14 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
             }
         }
 
-        d->hw = { vs_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vs_aligned_free };
+        d->hw = { vsh::vsh_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
         if (!d->hw)
             throw "malloc failure (hw)";
 
         createWindow(d->hw, tmode, smode);
 
-        unique_float dftgr{ vs_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vs_aligned_free };
-        d->dftgc = { vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vs_aligned_free };
+        unique_float dftgr{ vsh::vsh_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
+        d->dftgc = { vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vsh::vsh_aligned_free };
         if (!dftgr || !d->dftgc)
             throw "malloc failure (dftgr/dftgc)";
 
@@ -918,10 +926,10 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
 
         fftwf_execute_dft_r2c(d->ft.get(), dftgr.get(), d->dftgc.get());
 
-        d->sigmas = { vs_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vs_aligned_free };
-        d->sigmas2 = { vs_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vs_aligned_free };
-        d->pmins = { vs_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vs_aligned_free };
-        d->pmaxs = { vs_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vs_aligned_free };
+        d->sigmas = { vsh::vsh_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
+        d->sigmas2 = { vsh::vsh_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
+        d->pmins = { vsh::vsh_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
+        d->pmaxs = { vsh::vsh_aligned_malloc<float>((d->ccnt2 + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
         if (!d->sigmas || !d->sigmas2 || !d->pmins || !d->pmaxs)
             throw "malloc failure (sigmas/sigmas2/pmins/pmaxs)";
 
@@ -1050,14 +1058,14 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
 
             memset(d->sigmas.get(), 0, d->ccnt2 * sizeof(float));
 
-            unique_float hw2{ vs_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vs_aligned_free };
+            unique_float hw2{ vsh::vsh_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
             if (!hw2)
                 throw "malloc failure (hw2)";
 
             createWindow(hw2, 0, 0);
 
-            unique_float dftr{ vs_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vs_aligned_free };
-            unique_fftwf_complex dftgc2{ vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vs_aligned_free };
+            unique_float dftr{ vsh::vsh_aligned_malloc<float>((d->bvolume + 15) * sizeof(float), 64), vsh::vsh_aligned_free };
+            unique_fftwf_complex dftgc2{ vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vsh::vsh_aligned_free };
             if (!dftr || !dftgc2)
                 throw "malloc failure (dftr/dftgc2)";
 
@@ -1078,22 +1086,22 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
             std::unique_ptr<NPInfo[]> npts = std::make_unique<NPInfo[]>(500);
 
             for (int i = 0; i < numNlocation; i += 4) {
-                const int fn = int64ToIntS(nlocation[i + 0]);
-                const int b = int64ToIntS(nlocation[i + 1]);
-                const int y = int64ToIntS(nlocation[i + 2]);
-                const int x = int64ToIntS(nlocation[i + 3]);
+                const int fn = vsh::int64ToIntS(nlocation[i + 0]);
+                const int b = vsh::int64ToIntS(nlocation[i + 1]);
+                const int y = vsh::int64ToIntS(nlocation[i + 2]);
+                const int x = vsh::int64ToIntS(nlocation[i + 3]);
 
-                if (fn < 0 || fn > d->vi->numFrames - d->tbsize)
+                if (fn < 0 || fn > d->vi.numFrames - d->tbsize)
                     throw "invalid frame number in nlocation (" + std::to_string(fn) + ")";
 
-                if (b < 0 || b >= d->vi->format->numPlanes)
+                if (b < 0 || b >= fi->numPlanes)
                     throw "invalid plane number in nlocation (" + std::to_string(b) + ")";
 
-                const int height = d->vi->height >> (b ? d->vi->format->subSamplingH : 0);
+                const int height = d->vi.height >> (b ? fi->subSamplingH : 0);
                 if (y < 0 || y > height - d->sbsize)
                     throw "invalid y pos in nlocation (" + std::to_string(y) + ")";
 
-                const int width = d->vi->width >> (b ? d->vi->format->subSamplingW : 0);
+                const int width = d->vi.width >> (b ? fi->subSamplingW : 0);
                 if (x < 0 || x > width - d->sbsize)
                     throw "invalid x pos in nlocation (" + std::to_string(x) + ")";
 
@@ -1108,21 +1116,21 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
             }
 
             for (int ct = 0; ct < nnpoints; ct++) {
-                unique_fftwf_complex _dftc{ vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vs_aligned_free };
-                unique_fftwf_complex dftc2{ vs_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vs_aligned_free };
+                unique_fftwf_complex _dftc{ vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vsh::vsh_aligned_free };
+                unique_fftwf_complex dftc2{ vsh::vsh_aligned_malloc<fftwf_complex>((d->ccnt + 15) * sizeof(fftwf_complex), 64), vsh::vsh_aligned_free };
                 if (!_dftc || !dftc2)
                     throw "malloc failure (dftc/dftc2)";
 
                 float * dftc = reinterpret_cast<float *>(_dftc.get());
 
                 for (int z = 0; z < d->tbsize; z++) {
-                    const VSFrameRef * src = vsapi->getFrame(npts[ct].fn + z, d->node, nullptr, 0);
-                    const int stride = vsapi->getStride(src, npts[ct].b) / d->vi->format->bytesPerSample;
+                    const VSFrame * src = vsapi->getFrame(npts[ct].fn + z, d->node, nullptr, 0);
+                    const int stride = vsapi->getStride(src, npts[ct].b) / fi->bytesPerSample;
 
-                    if (d->vi->format->bytesPerSample == 1) {
+                    if (fi->bytesPerSample == 1) {
                         const uint8_t * srcp = vsapi->getReadPtr(src, npts[ct].b) + stride * npts[ct].y + npts[ct].x;
                         proc0(srcp, hw2.get() + d->barea * z, dftr.get() + d->barea * z, stride, d->sbsize, d->srcScale);
-                    } else if (d->vi->format->bytesPerSample == 2) {
+                    } else if (fi->bytesPerSample == 2) {
                         const uint16_t * srcp = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, npts[ct].b)) + stride * npts[ct].y + npts[ct].x;
                         proc0(srcp, hw2.get() + d->barea * z, dftr.get() + d->barea * z, stride, d->sbsize, d->srcScale);
                     } else {
@@ -1150,56 +1158,65 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData, 
                 d->sigmas[h] = d->sigmas[h] * scale * (wscale2 / wscale) * alpha;
         }
 
-        const unsigned numThreads = vsapi->getCoreInfo(core)->numThreads;
+        VSCoreInfo coreInfo{};
+        vsapi->getCoreInfo(core, &coreInfo);
+        const unsigned numThreads = coreInfo.numThreads;
         d->ebuff.reserve(numThreads);
         d->dftr.reserve(numThreads);
         d->dftc.reserve(numThreads);
         d->dftc2.reserve(numThreads);
     } catch (const char * error) {
-        vsapi->setError(out, ("DFTTest: "s + error).c_str());
-        vsapi->freeNode(d->node);
+        vsapi->mapSetError(out, ("DFTTest: "s + error).c_str());
+        if (d->node)
+            vsapi->freeNode(d->node);
         return;
     } catch (const std::string & error) {
-        vsapi->setError(out, ("DFTTest: " + error).c_str());
-        vsapi->freeNode(d->node);
+        vsapi->mapSetError(out, ("DFTTest: " + error).c_str());
+        if (d->node)
+            vsapi->freeNode(d->node);
         return;
     }
 
-    vsapi->createFilter(in, out, "DFTTest", dfttestInit, dfttestGetFrame, dfttestFree, fmParallel, 0, d.release(), core);
+    DFTTestData *data = d.get();
+    VSFilterDependency deps[] = { { data->node, data->tbsize == 1 ? rpStrictSpatial : rpGeneral } };
+    vsapi->createVideoFilter(out, "DFTTest", &data->vi, dfttestGetFrame, dfttestFree, fmParallel, deps, 1, data, core);
+    if (!vsapi->mapGetError(out))
+        d.release();
 }
 
 //////////////////////////////////////////
 // Init
 
-VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin * plugin) {
-    configFunc("com.holywu.dfttest", "dfttest", "2D/3D frequency domain denoiser", VAPOURSYNTH_API_VERSION, 1, plugin);
-    registerFunc("DFTTest",
-                 "clip:clip;"
-                 "ftype:int:opt;"
-                 "sigma:float:opt;"
-                 "sigma2:float:opt;"
-                 "pmin:float:opt;"
-                 "pmax:float:opt;"
-                 "sbsize:int:opt;"
-                 "smode:int:opt;"
-                 "sosize:int:opt;"
-                 "tbsize:int:opt;"
-                 "tmode:int:opt;"
-                 "tosize:int:opt;"
-                 "swin:int:opt;"
-                 "twin:int:opt;"
-                 "sbeta:float:opt;"
-                 "tbeta:float:opt;"
-                 "zmean:int:opt;"
-                 "f0beta:float:opt;"
-                 "nlocation:int[]:opt;"
-                 "alpha:float:opt;"
-                 "slocation:float[]:opt;"
-                 "ssx:float[]:opt;"
-                 "ssy:float[]:opt;"
-                 "sst:float[]:opt;"
-                 "ssystem:int:opt;"
-                 "planes:int[]:opt;"
-                 "opt:int:opt;",
-                 dfttestCreate, nullptr, plugin);
+VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin * plugin, const VSPLUGINAPI * vspapi) {
+    vspapi->configPlugin("com.holywu.dfttest", "dfttest", "2D/3D frequency domain denoiser", VS_MAKE_VERSION(1, 8), VAPOURSYNTH_API_VERSION, 0, plugin);
+    vspapi->registerFunction("DFTTest",
+                             "clip:vnode;"
+                             "ftype:int:opt;"
+                             "sigma:float:opt;"
+                             "sigma2:float:opt;"
+                             "pmin:float:opt;"
+                             "pmax:float:opt;"
+                             "sbsize:int:opt;"
+                             "smode:int:opt;"
+                             "sosize:int:opt;"
+                             "tbsize:int:opt;"
+                             "tmode:int:opt;"
+                             "tosize:int:opt;"
+                             "swin:int:opt;"
+                             "twin:int:opt;"
+                             "sbeta:float:opt;"
+                             "tbeta:float:opt;"
+                             "zmean:int:opt;"
+                             "f0beta:float:opt;"
+                             "nlocation:int[]:opt;"
+                             "alpha:float:opt;"
+                             "slocation:float[]:opt;"
+                             "ssx:float[]:opt;"
+                             "ssy:float[]:opt;"
+                             "sst:float[]:opt;"
+                             "ssystem:int:opt;"
+                             "planes:int[]:opt;"
+                             "opt:int:opt;",
+                             "clip:vnode;",
+                             dfttestCreate, nullptr, plugin);
 }

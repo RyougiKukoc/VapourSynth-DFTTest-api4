@@ -1,0 +1,112 @@
+name: Build MSYS2
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows UCRT64
+    runs-on: windows-2025
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up CPython
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python tools
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" -m pip install --upgrade pip
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-fftw
+
+      - name: Prepare VapourSynth R77 wheel
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\ci_prepare_msys2.py
+
+      - name: Build plugin
+        run: /ucrt64/bin/python tools/ci_build_msys2.py --clean
+
+      - name: Smoke-load artifact
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\smoke_load_artifact.py
+          --vapoursynth-root _deps\vapoursynth-wheel-R77
+          --artifact-dir dist\msys2-ucrt64
+          --exercise-filter
+
+      - name: Smoke-load artifact through manifest autoload
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\smoke_load_artifact.py
+          --vapoursynth-root _deps\vapoursynth-wheel-R77
+          --artifact-dir dist\msys2-ucrt64
+          --autoload
+          --exercise-filter
+
+      - name: Pack release zip
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\package_plugin_zip.py
+          --input-dir dist\msys2-ucrt64
+          --output dist\dfttest-msys2-ucrt64.zip
+
+      - name: Upload package directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: dfttest-msys2-ucrt64
+          path: dist/msys2-ucrt64
+
+      - name: Upload release zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dfttest-release-zip
+          path: dist/dfttest-msys2-ucrt64.zip
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          $tag = $env:RELEASE_TAG
+          $asset = "dist\dfttest-msys2-ucrt64.zip"
+          & cmd.exe /d /c "gh release view $tag --repo $env:GITHUB_REPOSITORY >NUL 2>NUL"
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $asset --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag $asset --title $tag --notes "Automated MSYS2/UCRT64 build." --repo $env:GITHUB_REPOSITORY
+          }
