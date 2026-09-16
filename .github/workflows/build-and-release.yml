@@ -1,0 +1,218 @@
+name: Build and release DFTTest
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-ucrt64:
+    name: Build Windows UCRT64
+    runs-on: windows-2025
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Python packaging tools and VapourSynth R79
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" -m pip install --upgrade pip build hatchling packaging meson ninja VapourSynth==79
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-fftw
+
+      - name: Prepare VapourSynth R79 wheel
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\ci_prepare_msys2.py
+
+      - name: Build plugin package
+        run: /ucrt64/bin/python tools/ci_build_msys2.py --clean
+
+      - name: Explicitly smoke-load package
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\smoke_load_artifact.py
+          --vapoursynth-root _deps\vapoursynth-wheel-R79
+          --artifact-dir dist\msys2-ucrt64 --json
+
+      - name: Create Windows release zip
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\package_plugin_zip.py
+          --input-dir dist\msys2-ucrt64
+          --output dist\dfttest-msys2-ucrt64.zip
+
+      - name: Build wheel from local release payload
+        shell: cmd
+        env:
+          DFTTEST_PREBUILT_URL: ${{ github.workspace }}\dist\dfttest-msys2-ucrt64.zip
+        run: >-
+          "%pythonLocation%\python.exe" -m build --wheel --no-isolation --outdir dist\wheels
+
+      - name: Install and autoload built wheel
+        shell: cmd
+        run: >-
+          for %%I in (dist\wheels\*.whl) do "%pythonLocation%\python.exe" -m pip install --force-reinstall --no-deps "%%~fI"
+
+      - name: Smoke installed Windows wheel
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\smoke_installed_wheel.py --json
+
+      - name: Smoke source install with Windows release payload
+        shell: cmd
+        env:
+          DFTTEST_PREBUILT_URL: ${{ github.workspace }}\dist\dfttest-msys2-ucrt64.zip
+        run: |
+          "%pythonLocation%\python.exe" -m pip uninstall -y vapoursynth-dfttest
+          "%pythonLocation%\python.exe" -m pip install --force-reinstall --no-deps --no-build-isolation -v .
+          "%pythonLocation%\python.exe" tools\smoke_installed_wheel.py --json
+
+      - name: Assemble Windows release assets
+        shell: cmd
+        run: >-
+          "%pythonLocation%\python.exe" tools\ci_make_release_assets.py
+          --clean --out-dir dist\release-assets
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dfttest-release-assets-windows
+          path: dist/release-assets
+          if-no-files-found: error
+
+  linux-x86_64:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build manylinux payload and wheel
+        shell: bash
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            quay.io/pypa/manylinux2014_x86_64 bash tools/ci_build_linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dfttest-release-assets-linux
+          path: dist/release-assets-linux
+          if-no-files-found: error
+
+  linux-runtime-smoke:
+    name: Smoke Linux payload and fallback
+    needs: linux-x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dfttest-release-assets-linux
+          path: dist/release-assets-linux
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install VapourSynth runtime
+        shell: bash
+        run: python -m pip install --upgrade pip VapourSynth==79
+
+      - name: Install and autoload released Linux wheel
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --force-reinstall --no-deps dist/release-assets-linux/*.whl
+          python tools/smoke_installed_wheel.py --json
+
+      - name: Explicitly load Linux release zip with autoload disabled
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python tools/smoke_load_artifact.py --artifact-zip dist/release-assets-linux/dfttest-linux-x86_64.zip --json
+
+      - name: Smoke source install with Linux release payload
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip uninstall -y vapoursynth-dfttest
+          export DFTTEST_PREBUILT_URL="$GITHUB_WORKSPACE/dist/release-assets-linux/dfttest-linux-x86_64.zip"
+          python -m pip install --force-reinstall --no-deps -v .
+          python tools/smoke_installed_wheel.py --json
+
+      - name: Force ordinary isolated Linux fallback with an unrelated pkg-config path
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes libfftw3-dev
+          rm -rf dist/fallback-wheel
+          export DFTTEST_FORCE_BUILD=1
+          export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
+          python -m pip wheel --no-deps -v --wheel-dir dist/fallback-wheel .
+          python -m pip uninstall -y vapoursynth-dfttest
+          python -m pip install --force-reinstall --no-deps dist/fallback-wheel/*.whl
+          python tools/smoke_installed_wheel.py --json
+
+  publish-release:
+    name: Publish coordinated release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-ucrt64, linux-runtime-smoke]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dfttest-release-assets-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify and publish exact release inventory
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          tag="$GITHUB_REF_NAME"
+          expected=(
+            "dfttest-linux-x86_64.zip"
+            "dfttest-msys2-ucrt64.zip"
+            "vapoursynth_dfttest-1.1-py3-none-manylinux_2_27_x86_64.whl"
+            "vapoursynth_dfttest-1.1-py3-none-win_amd64.whl"
+          )
+          mapfile -t actual < <(find release-assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#actual[@]}" -eq "${#expected[@]}"
+          for name in "${expected[@]}"; do
+            test -f "release-assets/$name"
+          done
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" release-assets/* --title "$tag" --notes "Automated Linux and Windows DFTTest release." --repo "$GITHUB_REPOSITORY"
+          fi
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url,assets

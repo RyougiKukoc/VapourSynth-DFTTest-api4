@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DEPS = ROOT / "_deps"
-VAPOURSYNTH_VERSION = "77"
+VAPOURSYNTH_VERSION = "79"
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -19,7 +19,7 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 
 def download_wheel(deps: Path) -> Path:
-    wheel_dir = deps / "downloads" / "vapoursynth-r77-wheel"
+    wheel_dir = deps / "downloads" / "vapoursynth-r79-wheel"
     wheel_dir.mkdir(parents=True, exist_ok=True)
     wheels = sorted(wheel_dir.glob(f"vapoursynth-{VAPOURSYNTH_VERSION}-*.whl"))
     if wheels:
@@ -62,7 +62,7 @@ def write_pkg_config(vs_pkg: Path) -> None:
                 "includedir=${prefix}/include",
                 "",
                 "Name: vapoursynth",
-                "Description: VapourSynth R77 wheel headers for MSYS2 builds",
+                "Description: VapourSynth R79 wheel headers for MSYS2 builds",
                 f"Version: {VAPOURSYNTH_VERSION}",
                 "Libs:",
                 "Cflags: -I${includedir}",
@@ -99,7 +99,7 @@ def prepare_vapoursynth(deps: Path) -> Path:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Prepare VapourSynth R77 wheel files for the MSYS2 build.")
+    parser = argparse.ArgumentParser(description="Prepare VapourSynth R79 wheel files for the MSYS2 build.")
     parser.add_argument("--deps-dir", default=str(DEFAULT_DEPS), help="Dependency cache/work directory.")
     args = parser.parse_args(argv)
 

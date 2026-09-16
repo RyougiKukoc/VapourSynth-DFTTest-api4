@@ -1,17 +1,17 @@
 [build-system]
-requires = ["hatchling>=1.30", "packaging>=24.0", "meson>=0.49", "ninja"]
+requires = ["hatchling>=1.30", "packaging>=24.0", "meson>=0.49", "ninja", "VapourSynth>=79"]
 build-backend = "hatchling.build"
 
 [project]
 name = "vapoursynth-dfttest"
-version = "1.0"
+version = "1.1"
 description = "DFTTest frequency-domain denoiser plugin for VapourSynth"
 readme = "README.md"
 license = { file = "LICENSE" }
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [{ name = "DFTTest contributors" }]
-dependencies = ["VapourSynth>=77"]
+dependencies = ["VapourSynth>=79"]
 
 [project.urls]
 "Source Code" = "https://github.com/RyougiKukoc/VapourSynth-DFTTest-api4"
@@ -32,6 +32,8 @@ include = [
 include = ["vapoursynth/plugins"]
 artifacts = [
   "vapoursynth/plugins/**/*.dll",
+  "vapoursynth/plugins/**/*.so*",
+  "vapoursynth/plugins/**/*.dylib",
   "vapoursynth/plugins/**/manifest.vs",
   "vapoursynth/plugins/**/LICENSE",
 ]

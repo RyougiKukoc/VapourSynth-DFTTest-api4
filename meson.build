@@ -17,6 +17,11 @@ fftw3f_dep = dependency('fftw3f')
 
 deps = [vapoursynth_dep, fftw3f_dep]
 
+fftw3f_threads_dep = dependency('fftw3f_threads', required: false)
+if fftw3f_threads_dep.found()
+  deps += fftw3f_threads_dep
+endif
+
 test_fftwf_threads = '''
 #include <fftw3.h>
 int main() {
@@ -24,11 +29,19 @@ int main() {
     return 0;
 }
 '''
-if not cxx.links(test_fftwf_threads, dependencies: fftw3f_dep)
+if not fftw3f_threads_dep.found() and not cxx.links(test_fftwf_threads, dependencies: fftw3f_dep)
   deps += cxx.find_library('fftw3f_threads')
 endif
 
 libs = []
+link_args = []
+
+if host_machine.system() == 'linux'
+  # Linux release builds use static FFTW and static C++ runtimes. Keep the
+  # module self-contained while the installed VapourSynth wheel supplies its
+  # own libvapoursynth at load time.
+  link_args += ['-static-libgcc', '-static-libstdc++']
+endif
 
 if host_machine.cpu_family().startswith('x86')
   add_project_arguments('-fno-math-errno', '-fno-trapping-math', '-DDFTTEST_X86', '-mfpmath=sse', '-msse2', language: 'cpp')
@@ -74,7 +87,8 @@ endif
 shared_module('dfttest', sources,
   dependencies: deps,
   link_with: libs,
+  link_args: link_args,
   install: true,
-  install_dir: join_paths(vapoursynth_dep.get_pkgconfig_variable('libdir'), 'vapoursynth'),
+  install_dir: join_paths(get_option('libdir'), 'vapoursynth'),
   gnu_symbol_visibility: 'hidden'
 )

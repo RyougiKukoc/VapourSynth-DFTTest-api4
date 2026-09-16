@@ -1,135 +1,209 @@
+#!/usr/bin/env python3
+"""Explicitly load one DFTTest package and render deterministic temporal frames."""
+
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
-import site
 import sys
-import sysconfig
+import tempfile
+import zipfile
 from pathlib import Path
+from typing import Any
 
 
-def resolve_vapoursynth_paths(root: Path | None) -> tuple[Path | None, list[Path], list[Path]]:
-    if root is None:
-        return None, [], []
-
-    root = root.resolve()
-    candidates = [
-        (root, root / "vapoursynth"),
-        (root / "Lib" / "site-packages", root / "Lib" / "site-packages" / "vapoursynth"),
-        (root.parent, root),
-    ]
-    for sys_path, dll_path in candidates:
-        if (dll_path / "libvapoursynth.dll").exists() and (dll_path / "__init__.py").exists():
-            return dll_path, [sys_path], [dll_path]
-    return None, [root], [root]
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_NAME = "dfttest"
 
 
-def resolve_artifact(root: Path) -> Path:
-    root = root.resolve()
-    candidates = [
-        root,
-        root / "dfttest",
-        root / "vapoursynth" / "plugins" / "dfttest",
-    ]
+def plugin_suffix() -> str:
+    if sys.platform == "win32":
+        return ".dll"
+    if sys.platform == "darwin":
+        return ".dylib"
+    return ".so"
+
+
+def frame_hash(frame: Any) -> str:
+    digest = hashlib.sha256()
+    for plane in range(frame.format.num_planes):
+        digest.update(bytes(frame[plane]))
+    return digest.hexdigest()
+
+
+class IsolatedEnvironmentPolicy:
+    """Create one R79 environment with autoload disabled before plugin loading."""
+
+    def __init__(self, flags: int) -> None:
+        self._api: Any = None
+        self._environment: Any = None
+        self._flags = flags
+
+    def on_policy_registered(self, api: Any) -> None:
+        self._api = api
+        self._environment = api.create_environment(self._flags)
+
+    def on_policy_cleared(self) -> None:
+        self._api = None
+        self._environment = None
+
+    def get_current_environment(self) -> Any:
+        return self._environment
+
+    def set_environment(self, environment: Any) -> Any:
+        previous = self._environment
+        if environment is not None:
+            self._environment = environment
+        return previous
+
+    def is_alive(self, environment: Any) -> bool:
+        return environment is self._environment
+
+    def close(self) -> None:
+        if self._api is not None and self._environment is not None:
+            self._api.destroy_environment(self._environment)
+            self._environment = None
+
+
+def install_isolated_policy(vs_module: Any) -> IsolatedEnvironmentPolicy | None:
+    if not hasattr(vs_module, "register_policy") or vs_module.has_policy():
+        return None
+    policy = IsolatedEnvironmentPolicy(int(vs_module.DISABLE_AUTO_LOADING))
+    vs_module.register_policy(policy)
+    return policy
+
+
+def add_vapoursynth_root(root_text: str | None) -> None:
+    if not root_text:
+        return
+    root = Path(root_text).resolve()
+    candidates = [root, root / "Lib" / "site-packages"]
+    for candidate in reversed(candidates):
+        if (candidate / "vapoursynth" / "__init__.py").exists():
+            sys.path.insert(0, str(candidate))
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if add_dll_directory is not None:
+        for candidate in (root, root / "vapoursynth"):
+            if candidate.is_dir():
+                add_dll_directory(str(candidate))
+
+
+def resolve_artifact(artifact_dir_arg: str | None, artifact_zip_arg: str | None) -> tuple[Path, Path | None]:
+    if artifact_zip_arg:
+        archive = (ROOT / artifact_zip_arg).resolve()
+        if not archive.is_file():
+            raise FileNotFoundError(archive)
+        temporary = Path(tempfile.mkdtemp(prefix="dfttest-package-"))
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(temporary)
+        directories = [path for path in temporary.iterdir() if path.is_dir()]
+        if len(directories) != 1:
+            raise RuntimeError(f"expected one top-level plugin directory in {archive}, found {len(directories)}")
+        return directories[0], temporary
+
+    root = (ROOT / (artifact_dir_arg or "dist/msys2-ucrt64/dfttest")).resolve()
+    candidates = [root, root / PLUGIN_NAME, root / "vapoursynth" / "plugins" / PLUGIN_NAME]
     for candidate in candidates:
-        if (candidate / "dfttest.dll").exists():
-            return candidate
-    raise FileNotFoundError(root / "dfttest" / "dfttest.dll")
+        if (candidate / f"{PLUGIN_NAME}{plugin_suffix()}").is_file():
+            return candidate, None
+    raise FileNotFoundError(root / PLUGIN_NAME / f"{PLUGIN_NAME}{plugin_suffix()}")
 
 
-def add_existing_dll_dirs(paths: list[Path]) -> None:
-    for path in paths:
-        if path.exists():
-            os.add_dll_directory(str(path))
+def make_source(core: Any, vs_module: Any) -> Any:
+    frames = []
+    for number in range(12):
+        inner = core.std.BlankClip(
+            width=48,
+            height=32,
+            format=vs_module.YUV420P8,
+            length=1,
+            color=[48 + number * 8, 96 + number * 3, 160 - number * 2],
+        )
+        frames.append(core.std.AddBorders(inner, left=8, right=8, top=8, bottom=8, color=[16, 128, 128]))
+    return core.std.Splice(frames)
+
+
+def plane_stats(core: Any, clip: Any, frame_number: int) -> list[dict[str, float]]:
+    values = []
+    for plane in range(clip.format.num_planes):
+        props = core.std.PlaneStats(clip, plane=plane).get_frame(frame_number).props
+        values.append(
+            {
+                "plane": plane,
+                "minimum": float(props["PlaneStatsMin"]),
+                "maximum": float(props["PlaneStatsMax"]),
+                "average": float(props["PlaneStatsAverage"]),
+            }
+        )
+    return values
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Smoke-load a built DFTTest artifact with VapourSynth.")
-    parser.add_argument("--vapoursynth-root", help="VapourSynth portable root or extracted wheel root.")
-    parser.add_argument("--artifact-dir", required=True)
-    parser.add_argument("--autoload", action="store_true", help="Load through VAPOURSYNTH_EXTRA_PLUGIN_PATH instead of std.LoadPlugin.")
-    parser.add_argument("--exercise-filter", action="store_true", help="Create a DFTTest node and request one frame.")
+    parser = argparse.ArgumentParser(description="Explicitly smoke-load a DFTTest plugin package.")
+    parser.add_argument("--artifact-dir", help="Plugin package directory or directory containing it.")
+    parser.add_argument("--artifact-zip", help="Release zip with one top-level dfttest directory.")
+    parser.add_argument("--vapoursynth-root", help="Extracted Windows VapourSynth wheel root.")
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    vs_root = Path(args.vapoursynth_root).resolve() if args.vapoursynth_root else None
-    artifact_root = Path(args.artifact_dir).resolve()
-    artifact = resolve_artifact(artifact_root)
+    package_dir, temporary = resolve_artifact(args.artifact_dir, args.artifact_zip)
+    plugin = package_dir / f"{PLUGIN_NAME}{plugin_suffix()}"
+    manifest = package_dir / "manifest.vs"
+    if not plugin.is_file() or not manifest.is_file():
+        raise FileNotFoundError(f"package must contain {plugin.name} and manifest.vs: {package_dir}")
 
-    required = [
-        artifact / "dfttest.dll",
-        artifact / "manifest.vs",
-    ]
-    for path in required:
-        if not path.exists():
-            print(f"missing required path: {path}", file=sys.stderr)
-            return 1
-
-    _vs_pkg, sys_paths, dll_paths = resolve_vapoursynth_paths(vs_root)
-    for path in reversed(sys_paths):
-        if path.exists():
-            sys.path.insert(0, str(path))
-
-    add_existing_dll_dirs(
-        [
-            artifact,
-            Path(sys.executable).resolve().parent,
-            Path(sysconfig.get_paths().get("platlib", "")),
-            Path(sysconfig.get_paths().get("purelib", "")),
-            *(Path(p) for p in site.getsitepackages()),
-            *dll_paths,
-        ]
-    )
-
-    if args.autoload:
-        plugin_root = artifact.parent
-        if artifact_root.joinpath("vapoursynth", "plugins").exists():
-            plugin_root = artifact_root / "vapoursynth" / "plugins"
-        elif artifact_root.joinpath("dfttest").exists():
-            plugin_root = artifact_root
-        os.environ["VAPOURSYNTH_EXTRA_PLUGIN_PATH"] = str(plugin_root)
-
+    add_vapoursynth_root(args.vapoursynth_root)
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    handles = [add_dll_directory(str(package_dir))] if add_dll_directory is not None else []
     try:
         import vapoursynth as vs
-    except ImportError as exc:
-        print(f"failed to import VapourSynth Python module: {exc}", file=sys.stderr)
-        print("install VapourSynth into this Python or pass --vapoursynth-root pointing at an extracted wheel", file=sys.stderr)
-        return 1
 
-    try:
-        flags = 0 if args.autoload else vs.DISABLE_AUTO_LOADING
-        env = vs.create_environment(flags=flags)
-        core = env.get_core()
-    except AttributeError:
+        policy = install_isolated_policy(vs)
         core = vs.core
+        core.std.LoadPlugin(str(plugin))
+        if not hasattr(core, PLUGIN_NAME) or not hasattr(core.dfttest, "DFTTest"):
+            raise RuntimeError("core.dfttest.DFTTest was not registered by the explicitly loaded plugin")
 
-    if not args.autoload:
-        core.std.LoadPlugin(str(artifact / "dfttest.dll"))
-    if not hasattr(core, "dfttest") or not hasattr(core.dfttest, "DFTTest"):
-        print("core.dfttest.DFTTest missing after loading artifact", file=sys.stderr)
-        return 1
-    print(core.dfttest.DFTTest)
-
-    if args.exercise_filter:
+        output = core.dfttest.DFTTest(make_source(core, vs))
+        rendered = {number: output.get_frame(number) for number in (0, 3, 11)}
+        hashes = {number: frame_hash(frame) for number, frame in rendered.items()}
+        invalid_error = ""
         try:
-            clip = core.std.BlankClip(format=vs.YUV420P8, width=64, height=32, length=5, color=[96, 128, 128])
-            filtered = core.dfttest.DFTTest(clip)
-            frame = filtered.get_frame(2)
-            stats = core.std.PlaneStats(filtered).get_frame(2).props
-        except Exception as exc:
-            print(f"filter exercise failed: {exc}", file=sys.stderr)
-            return 1
+            core.dfttest.DFTTest(make_source(core, vs), ftype=5)
+        except vs.Error as exc:
+            invalid_error = str(exc)
+        if "ftype must be 0, 1, 2, 3, or 4" not in invalid_error:
+            raise RuntimeError(f"DFTTest did not reject ftype=5 as documented: {invalid_error!r}")
 
-        if filtered.width != 64 or filtered.height != 32 or frame.width != 64 or frame.height != 32:
-            print(
-                f"unexpected filter output size: node={filtered.width}x{filtered.height}, frame={frame.width}x{frame.height}",
-                file=sys.stderr,
-            )
-            return 1
-        print(f"filter exercise: {frame.width}x{frame.height}")
-        print(f"PlaneStatsMin={stats['PlaneStatsMin']}")
-        print(f"PlaneStatsMax={stats['PlaneStatsMax']}")
-        print(f"PlaneStatsAverage={stats['PlaneStatsAverage']}")
-    return 0
+        frame = rendered[3]
+        result = {
+            "plugin": str(plugin),
+            "manifest": str(manifest),
+            "width": frame.width,
+            "height": frame.height,
+            "format": frame.format.name,
+            "frames": output.num_frames,
+            "frame_hashes": hashes,
+            "plane_stats": plane_stats(core, output, 3),
+            "invalid_ftype_error": invalid_error,
+        }
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            for key, value in result.items():
+                print(f"{key}={value}")
+        return 0
+    finally:
+        for handle in handles:
+            handle.close()
+        if "policy" in locals() and policy is not None:
+            policy.close()
+        if temporary is not None:
+            import shutil
+
+            shutil.rmtree(temporary, ignore_errors=True)
 
 
 if __name__ == "__main__":
